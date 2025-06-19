@@ -2,14 +2,22 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB_USERNAME = credentials('dockerhub-username')  // Create Jenkins secret
-    DOCKERHUB_PASSWORD = credentials('dockerhub-password')
+    DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')  // Single credential ID
+    DOCKERHUB_IMAGE_PREFIX = "${DOCKERHUB_CREDENTIALS_USR}"
   }
 
   stages {
     stage('Clone Repo') {
       steps {
-        git 'https://github.com/purveshpeche/my-app.git'
+        git 'https://github.com/your-username/your-repo.git'
+      }
+    }
+
+    stage('Docker Login') {
+      steps {
+        script {
+          sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
+        }
       }
     }
 
@@ -17,9 +25,8 @@ pipeline {
       steps {
         dir('backend') {
           script {
-            sh 'docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD'
-            sh 'docker build -t $DOCKERHUB_USERNAME/backend-app .'
-            sh 'docker push $DOCKERHUB_USERNAME/backend-app'
+            sh "docker build -t ${DOCKERHUB_IMAGE_PREFIX}/backend-app ."
+            sh "docker push ${DOCKERHUB_IMAGE_PREFIX}/backend-app"
           }
         }
       }
@@ -29,8 +36,8 @@ pipeline {
       steps {
         dir('frontend') {
           script {
-            sh 'docker build -t $DOCKERHUB_USERNAME/frontend-app .'
-            sh 'docker push $DOCKERHUB_USERNAME/frontend-app'
+            sh "docker build -t ${DOCKERHUB_IMAGE_PREFIX}/frontend-app ."
+            sh "docker push ${DOCKERHUB_IMAGE_PREFIX}/frontend-app"
           }
         }
       }
@@ -39,18 +46,18 @@ pipeline {
     stage('Deploy to EC2') {
       steps {
         sshagent(['ec2-ssh-key']) {
-          sh '''
-          ssh -o StrictHostKeyChecking=no ec2-user@<EC2-IP> << 'EOF'
-            sudo docker pull $DOCKERHUB_USERNAME/backend-app
-            sudo docker pull $DOCKERHUB_USERNAME/frontend-app
+          sh """
+          ssh -o StrictHostKeyChecking=no ec2-user@<EC2-IP> << EOF
+            docker pull ${DOCKERHUB_IMAGE_PREFIX}/backend-app
+            docker pull ${DOCKERHUB_IMAGE_PREFIX}/frontend-app
 
-            sudo docker stop backend || true && sudo docker rm backend || true
-            sudo docker stop frontend || true && sudo docker rm frontend || true
+            docker stop backend || true && docker rm backend || true
+            docker stop frontend || true && docker rm frontend || true
 
-            sudo docker run -d --restart unless-stopped -p 4000:4000 --name backend $DOCKERHUB_USERNAME/backend-app
-            sudo docker run -d --restart unless-stopped -p 80:3000 --name frontend $DOCKERHUB_USERNAME/frontend-app
+            docker run -d --restart unless-stopped -p 4000:4000 --name backend ${DOCKERHUB_IMAGE_PREFIX}/backend-app
+            docker run -d --restart unless-stopped -p 80:3000 --name frontend ${DOCKERHUB_IMAGE_PREFIX}/frontend-app
           EOF
-          '''
+          """
         }
       }
     }
